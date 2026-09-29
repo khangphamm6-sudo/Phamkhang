@@ -1,0 +1,263 @@
+aim.pyth
+Cỡ: 7.10KB (7276B)
+MD5: 9770343194e3c9d903325419caa4de47
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>Aim Snap FOV</title>
+<style>
+  body {
+    margin: 0; height: 100vh; background: #0d0d0d; color: #eee;
+    font-family: Arial, sans-serif; display: flex;
+    flex-direction: column; align-items: center; justify-content: center;
+    overflow: hidden; user-select: none;
+  }
+  #hud { margin-bottom: 10px; font-size: 18px; letter-spacing: 1px; }
+  #hud span { color: #00ffcc; font-weight: bold; }
+  canvas {
+    background: #141414; border-radius: 12px;
+    box-shadow: 0 0 30px rgba(0,255,200,0.15);
+    cursor: none;
+  }
+  #controls { margin-top: 12px; font-size: 14px; color: #888; }
+  input[type=range] { vertical-align: middle; }
+  #status { color:#ffcc00; font-weight:bold; }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  Điểm: <span id="score">0</span> |
+  Chính xác: <span id="acc">100%</span> |
+  Thời gian: <span id="time">30</span>s |
+  Trạng thái: <span id="status">--</span>
+</div>
+
+<canvas id="game" width="800" height="600"></canvas>
+
+<div id="controls">
+  FOV: <input type="range" id="fovSlider" min="60" max="400" value="180">
+  <span id="fovVal">180</span>px &nbsp;|&nbsp;
+  Độ cứng snap:
+  <input type="range" id="snapSlider" min="10" max="100" value="85">
+  <span id="snapVal">85</span>%
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const hudScore  = document.getElementById("score");
+const hudAcc    = document.getElementById("acc");
+const hudTime   = document.getElementById("time");
+const hudStatus = document.getElementById("status");
+
+const fovSlider    = document.getElementById("fovSlider");
+const fovVal       = document.getElementById("fovVal");
+const snapSlider   = document.getElementById("snapSlider");
+const snapVal      = document.getElementById("snapVal");
+
+let score = 0, shots = 0, hits = 0;
+let timeLeft = 30, running = true;
+
+let FOV_RADIUS = 180;
+let SNAP = 0.85;  // 0..1 : càng cao càng snap tức thì
+
+fovSlider.addEventListener("input", () => {
+  FOV_RADIUS = parseInt(fovSlider.value);
+  fovVal.textContent = FOV_RADIUS;
+});
+snapSlider.addEventListener("input", () => {
+  SNAP = parseInt(snapSlider.value) / 100;
+  snapVal.textContent = snapSlider.value;
+});
+
+// Chuột thật
+const mouse = { x: canvas.width / 2, y: canvas.height / 2 };
+// Crosshair ảo (bị snap)
+const aim   = { x: canvas.width / 2, y: canvas.height / 2 };
+
+const target = { x: 0, y: 0, r: 30 };
+
+let locked = false;
+let wasLocked = false; // để phát hiện lúc vừa vào FOV
+
+function randomTarget() {
+  target.r = 18 + Math.random() * 22;
+  target.x = target.r + Math.random() * (canvas.width  - target.r * 2);
+  target.y = target.r + Math.random() * (canvas.height - target.r * 2);
+}
+
+function updateHUD() {
+  hudScore.textContent = score;
+  hudAcc.textContent = shots ? Math.round((hits / shots) * 100) + "%" : "100%";
+  hudTime.textContent = Math.ceil(timeLeft);
+  hudStatus.textContent = locked ? "KHÓA ✔" : "--";
+  hudStatus.style.color = locked ? "#00ff66" : "#ffcc00";
+}
+
+canvas.addEventListener("mousemove", e => {
+  const rect = canvas.getBoundingClientRect();
+  mouse.x = e.clientX - rect.left;
+  mouse.y = e.clientY - rect.top;
+});
+
+canvas.addEventListener("click", e => {
+  if (!running) return;
+
+  const rect = canvas.getBoundingClientRect();
+  const cx = e.clientX - rect.left;
+  const cy = e.clientY - rect.top;
+
+  const distFromCenter = Math.hypot(cx - mouse.x, cy - mouse.y);
+  if (distFromCenter > FOV_RADIUS) return;
+
+  shots++;
+  const distToTarget = Math.hypot(aim.x - target.x, aim.y - target.y);
+  if (distToTarget <= target.r) {
+    hits++;
+    score += Math.max(1, Math.round(100 - distToTarget));
+    randomTarget();
+    locked = false;
+    wasLocked = false;
+  }
+
+  updateHUD();
+});
+
+/* ===== SNAP AIM LOGIC ===== */
+function updateAim() {
+  const dx = target.x - mouse.x;
+  const dy = target.y - mouse.y;
+  const dist = Math.hypot(dx, dy);
+
+  const inFOV = dist <= FOV_RADIUS + target.r;
+
+  if (inFOV) {
+    locked = true;
+
+    // Vừa vào FOV -> snap NGAY LẬP TỨC về tâm mục tiêu
+    if (!wasLocked) {
+      aim.x = target.x;
+      aim.y = target.y;
+    } else {
+      // Sau đó bám cứng (SNAP cao = gần như dính chặt)
+      aim.x += (target.x - aim.x) * SNAP;
+      aim.y += (target.y - aim.y) * SNAP;
+    }
+  } else {
+    locked = false;
+    // Ra khỏi FOV -> crosshair ảo quay về bám chuột thật
+    aim.x += (mouse.x - aim.x) * 0.5;
+    aim.y += (mouse.y - aim.y) * 0.5;
+  }
+
+  wasLocked = locked;
+}
+
+/* ===== VẼ ===== */
+function drawFOV() {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, canvas.width, canvas.height);
+  ctx.arc(mouse.x, mouse.y, FOV_RADIUS, 0, Math.PI * 2, true);
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.fill("evenodd");
+  ctx.restore();
+
+  ctx.beginPath();
+  ctx.arc(mouse.x, mouse.y, FOV_RADIUS, 0, Math.PI * 2);
+  ctx.strokeStyle = locked ? "rgba(0,255,100,0.95)" : "rgba(0,255,200,0.8)";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 6]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  drawFOV();
+
+  // Mục tiêu
+  ctx.beginPath();
+  ctx.arc(target.x, target.y, target.r, 0, Math.PI * 2);
+  ctx.fillStyle = locked ? "#ff8c1a" : "#e74c3c";
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = locked ? "#00ff66" : "#fff";
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(target.x, target.y, 4, 0, Math.PI * 2);
+  ctx.fillStyle = "#fff";
+  ctx.fill();
+
+  // Đường nối khi khóa
+  if (locked) {
+    ctx.beginPath();
+    ctx.moveTo(mouse.x, mouse.y);
+    ctx.lineTo(target.x, target.y);
+    ctx.strokeStyle = "rgba(0,255,100,0.35)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  // Crosshair ảo (aim snap)
+  ctx.strokeStyle = locked ? "#00ff66" : "#00ffcc";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(aim.x - 15, aim.y); ctx.lineTo(aim.x - 5, aim.y);
+  ctx.moveTo(aim.x + 5,  aim.y); ctx.lineTo(aim.x + 15, aim.y);
+  ctx.moveTo(aim.x, aim.y - 15); ctx.lineTo(aim.x, aim.y - 5);
+  ctx.moveTo(aim.x, aim.y + 5);  ctx.lineTo(aim.x, aim.y + 15);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(aim.x, aim.y, 2, 0, Math.PI * 2);
+  ctx.fillStyle = locked ? "#00ff66" : "#00ffcc";
+  ctx.fill();
+
+  // Chuột thật
+  ctx.beginPath();
+  ctx.arc(mouse.x, mouse.y, 3, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(255,255,255,0.4)";
+  ctx.fill();
+
+  if (!running) {
+    ctx.fillStyle = "rgba(0,0,0,0.8)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.font = "bold 44px Arial";
+    ctx.fillText("Hết thời gian!", canvas.width / 2, canvas.height / 2 - 30);
+    ctx.font = "24px Arial";
+    const acc = shots ? Math.round((hits / shots) * 100) : 0;
+    ctx.fillText(`Điểm: ${score} | Chính xác: ${acc}%`,
+      canvas.width / 2, canvas.height / 2 + 30);
+  }
+
+  requestAnimationFrame(draw);
+}
+
+let lastTime = performance.now();
+function tick(now) {
+  if (running) {
+    const dt = (now - lastTime) / 1000;
+    lastTime = now;
+    timeLeft -= dt;
+    if (timeLeft <= 0) { timeLeft = 0; running = false; }
+    updateAim();
+    updateHUD();
+  }
+  requestAnimationFrame(tick);
+}
+
+randomTarget();
+updateHUD();
+requestAnimationFrame(tick);
+draw();
+</script>
+</body>
+</html>
